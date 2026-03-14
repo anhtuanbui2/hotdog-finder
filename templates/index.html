@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SurfFind</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ocean: #0a2342;
+  --deep:  #061523;
+  --wave:  #1e6091;
+  --teal:  #1d9e75;
+  --coral: #d85a30;
+  --sand:  #f5e6c8;
+  --mist:  #94afc0;
+  --white: #ffffff;
+  --card-border: rgba(255,255,255,0.07);
+  --card-hover:  rgba(255,255,255,0.04);
+}
+
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--deep);
+  color: var(--white);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* HEADER */
+header {
+  flex-shrink: 0;
+  height: 54px;
+  background: var(--deep);
+  border-bottom: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  z-index: 200;
+}
+
+.logo {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 24px;
+  letter-spacing: 3px;
+  color: var(--sand);
+  flex-shrink: 0;
+}
+.logo em { color: var(--coral); font-style: normal; }
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 560px;
+}
+
+/* AUTOCOMPLETE WRAPPER */
+.location-wrap {
+  flex: 1;
+  position: relative;
+}
+
+#location-input {
+  width: 100%;
+  height: 34px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 6px;
+  padding: 0 12px;
+  color: var(--white);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s;
+}
+#location-input::placeholder { color: var(--mist); }
+#location-input:focus { border-color: var(--coral); }
+
+/* SUGGESTIONS DROPDOWN */
+#suggestions {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #0d2035;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 9999;
+  overflow: hidden;
+  max-height: 260px;
+  overflow-y: auto;
+}
+#suggestions.open { display: block; }
+#suggestions::-webkit-scrollbar { width: 3px; }
+#suggestions::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.suggestion-item {
+  padding: 9px 13px;
+  font-size: 13px;
+  color: var(--white);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  line-height: 1.35;
+  transition: background .1s;
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:hover,
+.suggestion-item.highlighted { background: rgba(216,90,48,0.18); }
+.suggestion-item .s-main { font-weight: 500; }
+.suggestion-item .s-sub  { font-size: 11px; color: var(--mist); margin-top: 1px; }
+.suggestions-loading,
+.suggestions-empty {
+  padding: 10px 13px;
+  font-size: 13px;
+  color: var(--mist);
+  font-style: italic;
+}
+
+#radius-select {
+  height: 34px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 6px;
+  padding: 0 28px 0 10px;
+  color: var(--white);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394afc0'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-color: rgba(255,255,255,0.07);
+  cursor: pointer;
+}
+#radius-select option { background: #0a2342; }
+
+.btn-search {
+  height: 34px;
+  padding: 0 18px;
+  background: var(--coral);
+  border: none;
+  border-radius: 6px;
+  color: var(--white);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
+}
+.btn-search:hover  { background: #c04e26; }
+.btn-search:active { transform: scale(.97); }
+
+#result-count {
+  font-size: 12px;
+  color: var(--mist);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* FILTERS */
+.filters {
+  flex-shrink: 0;
+  min-height: 42px;
+  background: rgba(6,21,35,0.97);
+  border-bottom: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+  flex-wrap: wrap;
+}
+.filters::-webkit-scrollbar { display: none; }
+
+.filter-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--mist);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.filter-select {
+  height: 26px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 5px;
+  padding: 0 24px 0 9px;
+  color: var(--white);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394afc0'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-color: rgba(255,255,255,0.06);
+  cursor: pointer;
+  transition: border-color .2s;
+  white-space: nowrap;
+}
+.filter-select:focus  { border-color: var(--coral); }
+.filter-select option { background: #061523; }
+.filter-select.active { background-color: rgba(29,158,117,0.2); border-color: var(--teal); color: #7fe5c1; }
+.filter-divider { width: 1px; height: 18px; background: rgba(255,255,255,0.08); flex-shrink: 0; margin: 0 2px; }
+
+/* MAIN */
+.main { flex: 1; display: flex; overflow: hidden; position: relative; }
+#map  { flex: 1; z-index: 1; }
+
+/* Leaflet popup overrides */
+.leaflet-popup-content-wrapper {
+  background: #0a2342;
+  color: var(--white);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+}
+.leaflet-popup-tip-container { display: none; }
+.leaflet-popup-content { margin: 10px 14px; font-family: 'DM Sans', sans-serif; }
+.leaflet-popup-close-button { color: var(--mist) !important; font-size: 18px !important; top: 6px !important; right: 8px !important; }
+.popup-name { font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px; color: var(--sand); }
+.popup-sub  { font-size: 11px; color: var(--mist); margin-top: 2px; }
+.popup-btn  {
+  display: inline-block; margin-top: 8px; padding: 4px 10px;
+  background: var(--coral); color: var(--white); border: none;
+  border-radius: 4px; font-size: 12px; font-weight: 500;
+  font-family: 'DM Sans', sans-serif; cursor: pointer;
+}
+
+/* SPOT LIST */
+.spot-list {
+  width: 320px;
+  flex-shrink: 0;
+  background: var(--deep);
+  border-left: 1px solid var(--card-border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  z-index: 2;
+}
+.spot-list::-webkit-scrollbar { width: 3px; }
+.spot-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.list-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px; padding: 40px 24px; text-align: center;
+}
+.list-empty-icon { font-size: 36px; opacity: .3; }
+.list-empty-text { font-size: 13px; color: var(--mist); line-height: 1.6; }
+
+.spot-card {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--card-border);
+  cursor: pointer;
+  transition: background .12s;
+  border-left: 3px solid transparent;
+}
+.spot-card:hover   { background: var(--card-hover); }
+.spot-card.active  { background: rgba(216,90,48,0.1); border-left-color: var(--coral); }
+
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 3px; }
+.card-name { font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: .8px; color: var(--white); line-height: 1.15; }
+.card-dist { font-size: 12px; color: var(--coral); font-weight: 500; white-space: nowrap; }
+.card-zone { font-size: 11px; color: var(--mist); margin-bottom: 7px; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.tag { font-size: 11px; padding: 2px 7px; border-radius: 20px; font-weight: 400; }
+.tag-type  { background: rgba(29,158,117,.2);  color: #7fe5c1; }
+.tag-exp   { background: rgba(56,138,221,.2);  color: #7ec8f4; }
+.tag-dir   { background: rgba(239,159,39,.2);  color: #f4d58d; }
+.tag-qual  { background: rgba(216,90,48,.2);   color: #f4a97a; }
+.tag-crowd { background: rgba(226,75,74,.18);  color: #f4a0a0; }
+
+/* MODAL */
+.modal-backdrop {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.65); z-index: 1000;
+  align-items: center; justify-content: center; padding: 20px;
+}
+.modal-backdrop.open { display: flex; }
+
+.modal {
+  background: #0c1e30; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; width: 100%; max-width: 680px;
+  max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column;
+}
+.modal::-webkit-scrollbar { width: 3px; }
+.modal::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+.modal-header {
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  position: sticky; top: 0; background: #0c1e30; z-index: 10;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+}
+.modal-title-block { flex: 1; }
+.modal-name { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 2px; color: var(--white); line-height: 1.1; }
+.modal-alt  { font-size: 12px; color: var(--mist); font-style: italic; margin-top: 2px; }
+.modal-meta { font-size: 12px; color: var(--mist); margin-top: 3px; }
+.modal-dist { font-size: 13px; color: var(--coral); font-weight: 500; margin-top: 4px; }
+
+.modal-close {
+  background: rgba(255,255,255,0.07); border: none; color: var(--white);
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: background .15s;
+}
+.modal-close:hover { background: rgba(255,255,255,0.14); }
+
+.modal-body { padding: 18px 22px 22px; }
+.modal-section { margin-bottom: 22px; }
+.modal-section:last-child { margin-bottom: 0; }
+
+.section-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--coral);
+  margin-bottom: 12px; padding-bottom: 5px; border-bottom: 1px solid rgba(216,90,48,.2);
+}
+
+.fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field.full { grid-column: 1 / -1; }
+.field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--mist); }
+.field-value { font-size: 13px; color: var(--white); line-height: 1.45; }
+.field-value.empty { color: rgba(148,175,192,.4); font-style: italic; }
+
+.modal-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 14px; font-size: 13px; color: var(--teal); text-decoration: none; font-weight: 500;
+}
+.modal-link:hover { opacity: .75; }
+
+/* LOADING */
+#loading { display: none; position: fixed; inset: 0; background: rgba(6,21,35,.7); z-index: 9999; align-items: center; justify-content: center; }
+#loading.show { display: flex; }
+.spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,.1); border-top-color: var(--coral); border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#error-msg {
+  display: none; background: rgba(226,75,74,.15); border: 1px solid rgba(226,75,74,.3);
+  border-radius: 6px; padding: 8px 14px; font-size: 13px; color: #f4a0a0; margin-left: auto;
+}
+#error-msg.show { display: block; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">SURF<em>FIND</em></div>
+  <div class="search-row">
+    <div class="location-wrap">
+      <input id="location-input" type="text" placeholder="Enter a city or address…" autocomplete="off"/>
+      <div id="suggestions"></div>
+    </div>
+    <select id="radius-select">
+      <option value="1">1 mile</option>
+      <option value="5" selected>5 miles</option>
+      <option value="10">10 miles</option>
+      <option value="25">25 miles</option>
+    </select>
+    <button class="btn-search" id="search-btn">Search</button>
+  </div>
+  <span id="error-msg"></span>
+  <span id="result-count"></span>
+</header>
+
+<!-- FILTERS -->
+<div class="filters">
+  <span class="filter-label">Filters</span>
+  <select id="f-experience" class="filter-select"><option value="">Experience: all</option></select>
+  <div class="filter-divider"></div>
+  <select id="f-wave-type" class="filter-select"><option value="">Wave type: all</option></select>
+  <div class="filter-divider"></div>
+  <select id="f-direction" class="filter-select">
+    <option value="">Direction: all</option>
+    <option value="right">Right (incl. right &amp; left)</option>
+    <option value="left">Left (incl. right &amp; left)</option>
+  </select>
+  <div class="filter-divider"></div>
+  <select id="f-crowd" class="filter-select"><option value="">Weekend crowd: all</option></select>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div id="map"></div>
+  <div class="spot-list" id="spot-list">
+    <div class="list-empty" id="list-empty">
+      <div class="list-empty-icon">🌊</div>
+      <div class="list-empty-text">Enter a location above<br>to find nearby surf spots</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title-block">
+        <div class="modal-name" id="m-name"></div>
+        <div class="modal-alt"  id="m-alt"></div>
+        <div class="modal-meta" id="m-meta"></div>
+        <div class="modal-dist" id="m-dist"></div>
+      </div>
+      <button class="modal-close" id="modal-close">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="section-title">Wave</div>
+        <div class="fields-grid">
+          <div class="field"><span class="field-label">Quality</span><span class="field-value" id="m-quality"></span></div>
+          <div class="field"><span class="field-label">Experience</span><span class="field-value" id="m-experience"></span></div>
+          <div class="field"><span class="field-label">Type</span><span class="field-value" id="m-type"></span></div>
+          <div class="field"><span class="field-label">Direction</span><span class="field-value" id="m-direction"></span></div>
+          <div class="field"><span class="field-label">Bottom</span><span class="field-value" id="m-bottom"></span></div>
+          <div class="field"><span class="field-label">Power</span><span class="field-value" id="m-power"></span></div>
+          <div class="field"><span class="field-label">Frequency</span><span class="field-value" id="m-frequency"></span></div>
+          <div class="field"><span class="field-label">Normal length</span><span class="field-value" id="m-normal-length"></span></div>
+          <div class="field"><span class="field-label">Good day length</span><span class="field-value" id="m-good-day-length"></span></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="section-title">Conditions</div>
+        <div class="fields-grid">
+          <div class="field"><span class="field-label">Best swell direction</span><span class="field-value" id="m-swell-dir"></span></div>
+          <div class="field"><span class="field-label">Best wind direction</span><span class="field-value" id="m-wind-dir"></span></div>
+          <div class="field"><span class="field-label">Swell size</span><span class="field-value" id="m-swell-size"></span></div>
+          <div class="field"><span class="field-label">Best tide position</span><span class="field-value" id="m-tide-pos"></span></div>
+          <div class="field"><span class="field-label">Best tide movement</span><span class="field-value" id="m-tide-mov"></span></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="section-title">Crowd</div>
+        <div class="fields-grid">
+          <div class="field"><span class="field-label">Weekday</span><span class="field-value" id="m-week-crowd"></span></div>
+          <div class="field"><span class="field-label">Weekend</span><span class="field-value" id="m-weekend-crowd"></span></div>
+          <div class="field full"><span class="field-label">Dangers</span><span class="field-value" id="m-dangers"></span></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="section-title">Access</div>
+        <div class="fields-grid">
+          <div class="field"><span class="field-label">Distance</span><span class="field-value" id="m-access-dist"></span></div>
+          <div class="field"><span class="field-label">Walk</span><span class="field-value" id="m-access-walk"></span></div>
+          <div class="field full"><span class="field-label">Directions</span><span class="field-value" id="m-access-desc"></span></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="section-title">About this spot</div>
+        <div class="field-value" id="m-description" style="line-height:1.6;font-size:13px;"></div>
+        <div class="field-value" id="m-atmosphere"  style="line-height:1.6;font-size:13px;margin-top:10px;color:rgba(255,255,255,.75);"></div>
+      </div>
+      <a class="modal-link" id="m-link" href="#" target="_blank">View on WannaSurf ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loading"><div class="spinner"></div></div>
+
+<script>
+// Map setup
+const map = L.map('map', { zoomControl: true }).setView([34.0, -118.5], 9);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap contributors © CARTO', maxZoom: 19,
+}).addTo(map);
+
+function makeIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6" fill="${color}" stroke="white" stroke-width="2"/></svg>`,
+    iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10],
+  });
+}
+const iconDefault = makeIcon('#1d9e75');
+const iconActive  = makeIcon('#d85a30');
+
+// State
+let allSpots = [], markers = {}, activeId = null, searchCenter = null;
+
+// DOM refs
+const locationInput = document.getElementById('location-input');
+const radiusSelect  = document.getElementById('radius-select');
+const searchBtn     = document.getElementById('search-btn');
+const resultCount   = document.getElementById('result-count');
+const errorMsg      = document.getElementById('error-msg');
+const spotList      = document.getElementById('spot-list');
+const listEmpty     = document.getElementById('list-empty');
+const loading       = document.getElementById('loading');
+const backdrop      = document.getElementById('modal-backdrop');
+const modalClose    = document.getElementById('modal-close');
+const suggestionsEl = document.getElementById('suggestions');
+const fExperience   = document.getElementById('f-experience');
+const fWaveType     = document.getElementById('f-wave-type');
+const fDirection    = document.getElementById('f-direction');
+const fCrowd        = document.getElementById('f-crowd');
+
+// ── Nominatim Typeahead ──
+let nominatimTimer   = null;
+let highlightedIdx   = -1;
+let currentSuggestions = [];
+
+function closeSuggestions() {
+  suggestionsEl.classList.remove('open');
+  suggestionsEl.innerHTML = '';
+  highlightedIdx = -1;
+  currentSuggestions = [];
+}
+
+function renderSuggestions(results) {
+  suggestionsEl.innerHTML = '';
+  highlightedIdx = -1;
+  if (!results.length) {
+    suggestionsEl.innerHTML = '<div class="suggestions-empty">No results found</div>';
+    suggestionsEl.classList.add('open');
+    return;
+  }
+  currentSuggestions = results;
+  results.forEach((item, i) => {
+    const parts = item.display_name.split(', ');
+    const main = parts[0];
+    const sub  = parts.slice(1).join(', ');
+    const el = document.createElement('div');
+    el.className = 'suggestion-item';
+    el.innerHTML = `<div class="s-main">${main}</div><div class="s-sub">${sub}</div>`;
+    el.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(item); });
+    suggestionsEl.appendChild(el);
+  });
+  suggestionsEl.classList.add('open');
+}
+
+function updateHighlight(idx) {
+  const items = suggestionsEl.querySelectorAll('.suggestion-item');
+  items.forEach((el, i) => el.classList.toggle('highlighted', i === idx));
+  highlightedIdx = idx;
+}
+
+function selectSuggestion(item) {
+  locationInput.value = item.display_name;
+  closeSuggestions();
+  doSearch();
+}
+
+locationInput.addEventListener('input', () => {
+  const q = locationInput.value.trim();
+  clearTimeout(nominatimTimer);
+  if (q.length < 3) { closeSuggestions(); return; }
+  suggestionsEl.innerHTML = '<div class="suggestions-loading">Searching…</div>';
+  suggestionsEl.classList.add('open');
+  nominatimTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&addressdetails=0`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const data = await res.json();
+      if (locationInput.value.trim() === q) renderSuggestions(data);
+    } catch { closeSuggestions(); }
+  }, 350);
+});
+
+locationInput.addEventListener('keydown', e => {
+  const items = suggestionsEl.querySelectorAll('.suggestion-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (items.length) updateHighlight((highlightedIdx + 1) % items.length);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (items.length) updateHighlight((highlightedIdx - 1 + items.length) % items.length);
+  } else if (e.key === 'Enter') {
+    if (highlightedIdx >= 0 && currentSuggestions[highlightedIdx]) {
+      e.preventDefault();
+      selectSuggestion(currentSuggestions[highlightedIdx]);
+    } else { closeSuggestions(); doSearch(); }
+  } else if (e.key === 'Escape') {
+    closeSuggestions();
+  }
+});
+
+locationInput.addEventListener('blur', () => { setTimeout(closeSuggestions, 150); });
+document.addEventListener('click', e => { if (!e.target.closest('.location-wrap')) closeSuggestions(); });
+
+// ── Filter options ──
+fetch('/filters').then(r => r.json()).then(data => {
+  data.experience.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = 'Experience: ' + v; fExperience.appendChild(o); });
+  data.wave_type.forEach(v  => { const o = document.createElement('option'); o.value = v; o.textContent = 'Type: ' + v; fWaveType.appendChild(o); });
+  data.crowd.forEach(v      => { const o = document.createElement('option'); o.value = v; o.textContent = 'Crowd: ' + v; fCrowd.appendChild(o); });
+});
+
+[fExperience, fWaveType, fDirection, fCrowd].forEach(sel => {
+  sel.addEventListener('change', () => { sel.classList.toggle('active', sel.value !== ''); if (allSpots.length) renderCards(allSpots); });
+});
+
+// ── Search ──
+function doSearch() {
+  const loc = locationInput.value.trim();
+  if (!loc) return;
+  showError('');
+  loading.classList.add('show');
+  const params = new URLSearchParams({ location: loc, radius: radiusSelect.value, experience: fExperience.value, wave_type: fWaveType.value, direction: fDirection.value, crowd: fCrowd.value });
+  fetch('/search?' + params)
+    .then(r => r.json())
+    .then(data => {
+      loading.classList.remove('show');
+      if (data.error) { showError(data.error); return; }
+      allSpots = data.spots;
+      searchCenter = data.center;
+      map.setView([searchCenter.lat, searchCenter.lon], 11);
+      if (window._radiusCircle) map.removeLayer(window._radiusCircle);
+      window._radiusCircle = L.circle([searchCenter.lat, searchCenter.lon], {
+        radius: parseFloat(radiusSelect.value) * 1609.34,
+        color: 'rgba(216,90,48,0.5)', weight: 1, fillColor: 'rgba(216,90,48,0.04)', fillOpacity: 1,
+      }).addTo(map);
+      renderCards(allSpots);
+      renderMarkers(allSpots);
+      resultCount.textContent = data.count + (data.count === 1 ? ' spot' : ' spots') + ' found';
+    })
+    .catch(() => { loading.classList.remove('show'); showError('Search failed — is the server running?'); });
+}
+
+searchBtn.addEventListener('click', doSearch);
+
+// ── Render cards ──
+function renderCards(spots) {
+  spotList.querySelectorAll('.spot-card').forEach(el => el.remove());
+  if (!spots.length) {
+    listEmpty.style.display = 'flex';
+    listEmpty.querySelector('.list-empty-text').textContent = 'No spots found — try adjusting your filters or radius.';
+    return;
+  }
+  listEmpty.style.display = 'none';
+  spots.forEach(spot => {
+    const card = document.createElement('div');
+    card.className = 'spot-card' + (spot.id === activeId ? ' active' : '');
+    card.dataset.id = spot.id;
+    const tags = [];
+    if (spot.wave_type)      tags.push(`<span class="tag tag-type">${spot.wave_type}</span>`);
+    if (spot.experience)     tags.push(`<span class="tag tag-exp">${spot.experience}</span>`);
+    if (spot.wave_direction) tags.push(`<span class="tag tag-dir">${spot.wave_direction}</span>`);
+    if (spot.wave_quality)   tags.push(`<span class="tag tag-qual">${spot.wave_quality}</span>`);
+    if (spot.weekend_crowd)  tags.push(`<span class="tag tag-crowd">${spot.weekend_crowd}</span>`);
+    card.innerHTML = `
+      <div class="card-top"><div class="card-name">${spot.name}</div><div class="card-dist">${spot.distance_miles} mi</div></div>
+      <div class="card-zone">${spot.zone || ''}${spot.country ? ' · ' + spot.country : ''}</div>
+      <div class="card-tags">${tags.join('')}</div>`;
+    card.addEventListener('click', () => openSpot(spot));
+    spotList.appendChild(card);
+  });
+}
+
+// ── Render markers ──
+function renderMarkers(spots) {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  spots.forEach(spot => {
+    const marker = L.marker([spot.latitude, spot.longitude], { icon: spot.id === activeId ? iconActive : iconDefault });
+    const tags = [];
+    if (spot.wave_type)      tags.push(`<span class="tag tag-type">${spot.wave_type}</span>`);
+    if (spot.experience)     tags.push(`<span class="tag tag-exp">${spot.experience}</span>`);
+    if (spot.wave_direction) tags.push(`<span class="tag tag-dir">${spot.wave_direction}</span>`);
+    if (spot.wave_quality)   tags.push(`<span class="tag tag-qual">${spot.wave_quality}</span>`);
+    if (spot.weekend_crowd)  tags.push(`<span class="tag tag-crowd">${spot.weekend_crowd}</span>`);
+    marker.bindPopup(`
+      <div class="popup-name">${spot.name}</div>
+      <div class="popup-sub">${[spot.zone, spot.country].filter(Boolean).join(' · ')}</div>
+      <div class="popup-sub" style="margin-top:3px;color:#d85a30;font-weight:500;">${spot.distance_miles} mi away</div>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">${tags.join('')}</div>
+      <button class="popup-btn" onclick="openSpotById(${spot.id})">View details</button>
+    `);
+    marker.on('click', () => setActive(spot.id));
+    marker.addTo(map);
+    markers[spot.id] = marker;
+  });
+}
+
+// ── Active spot ──
+function setActive(id) {
+  activeId = id;
+  spotList.querySelectorAll('.spot-card').forEach(card => card.classList.toggle('active', parseInt(card.dataset.id) === id));
+  Object.entries(markers).forEach(([mid, marker]) => marker.setIcon(parseInt(mid) === id ? iconActive : iconDefault));
+  const activeCard = spotList.querySelector(`.spot-card[data-id="${id}"]`);
+  if (activeCard) activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Modal ──
+function openSpot(spot) {
+  setActive(spot.id);
+  if (spot.latitude && spot.longitude) { map.panTo([spot.latitude, spot.longitude]); if (markers[spot.id]) markers[spot.id].openPopup(); }
+  function fill(id, val) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (val) { el.textContent = val; el.classList.remove('empty'); }
+    else     { el.textContent = '—'; el.classList.add('empty'); }
+  }
+  document.getElementById('m-name').textContent = spot.name;
+  const altEl = document.getElementById('m-alt');
+  if (spot.alternative_name && spot.alternative_name.toLowerCase() !== spot.name.toLowerCase()) {
+    altEl.textContent = 'Also known as: ' + spot.alternative_name; altEl.style.display = '';
+  } else { altEl.style.display = 'none'; }
+  document.getElementById('m-meta').textContent = [spot.zone, spot.country].filter(Boolean).join(' · ');
+  document.getElementById('m-dist').textContent = spot.distance_miles + ' miles away';
+  fill('m-quality',       spot.wave_quality);
+  fill('m-experience',    spot.experience);
+  fill('m-type',          spot.wave_type);
+  fill('m-direction',     spot.wave_direction);
+  fill('m-bottom',        spot.bottom);
+  fill('m-power',         spot.power);
+  fill('m-frequency',     spot.frequency);
+  fill('m-normal-length', spot.normal_length);
+  fill('m-good-day-length', spot.good_day_length);
+  fill('m-swell-dir',     spot.good_swell_dir);
+  fill('m-wind-dir',      spot.good_wind_dir);
+  fill('m-swell-size',    spot.swell_size);
+  fill('m-tide-pos',      spot.best_tide_position);
+  fill('m-tide-mov',      spot.best_tide_movement);
+  fill('m-week-crowd',    spot.week_crowd);
+  fill('m-weekend-crowd', spot.weekend_crowd);
+  fill('m-dangers',       spot.dangers);
+  fill('m-access-dist',   spot.access_distance);
+  fill('m-access-walk',   spot.access_walk);
+  fill('m-access-desc',   spot.access_description);
+  fill('m-description',   spot.description);
+  fill('m-atmosphere',    spot.atmosphere);
+  const link = document.getElementById('m-link');
+  link.href = spot.url || '#'; link.style.display = spot.url ? '' : 'none';
+  backdrop.classList.add('open');
+}
+
+window.openSpotById = function(id) { const spot = allSpots.find(s => s.id === id); if (spot) openSpot(spot); };
+
+function closeModal() { backdrop.classList.remove('open'); }
+modalClose.addEventListener('click', closeModal);
+backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.toggle('show', !!msg); }
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Secrets - NEVER commit these
+.env
+.env.local
+.env.production
+
+# Your local SQLite database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Dev utilities
+scraper.py
+diagnose.py
+fix_db.py
+run_db.py
+*.log
