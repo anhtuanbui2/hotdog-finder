@@ -30,3 +30,7 @@ diagnose.py
 fix_db.py
 run_db.py
 *.log
+app_localhost.py
+export.py
+surf_spots.csv
+test_db.py
