@@ -1,15 +1,18 @@
 from flask import Flask, request, jsonify, render_template
-import sqlite3
+from supabase import create_client
 import math
 import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-DB_PATH = "surf_spots.db"
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+supabase = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_ANON_KEY")
+)
 
 def haversine_miles(lat1, lon1, lat2, lon2):
     R = 3958.8
@@ -24,7 +27,7 @@ def geocode(location):
         resp = requests.get(
             "https://nominatim.openstreetmap.org/search",
             params={"q": location, "format": "json", "limit": 1},
-            headers={"User-Agent": "WannaSurf-Finder/1.0"},
+            headers={"User-Agent": "SurfFind/1.0"},
             timeout=5,
         )
         results = resp.json()
@@ -54,11 +57,24 @@ def search():
     if lat is None:
         return jsonify({"error": f"Could not find location: {location}"}), 404
 
-    conn = get_db()
-    spots = conn.execute(
-        "SELECT * FROM surf_spots WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
-    ).fetchall()
-    conn.close()
+    print(f"Geocoded: {lat}, {lon}")
+
+    all_spots = []
+    page = 0
+    page_size = 1000
+    while True:
+        response = supabase.table("surf_spots") \
+            .select("*") \
+            .not_.is_("latitude", "null") \
+            .not_.is_("longitude", "null") \
+            .range(page * page_size, (page + 1) * page_size - 1) \
+            .execute()
+        all_spots.extend(response.data)
+        if len(response.data) < page_size:
+            break
+        page += 1
+
+    spots = all_spots
 
     results = []
     for spot in spots:
@@ -66,54 +82,54 @@ def search():
         if dist > radius:
             continue
 
-        if experience and spot["experience"]:
+        if experience and spot.get("experience"):
             if experience.lower() not in spot["experience"].lower():
                 continue
 
-        if wave_type and spot["wave_type"]:
+        if wave_type and spot.get("wave_type"):
             if wave_type.lower() not in spot["wave_type"].lower():
                 continue
 
-        if direction and spot["wave_direction"]:
+        if direction and spot.get("wave_direction"):
             if direction.lower() not in spot["wave_direction"].lower():
                 continue
 
-        if crowd and spot["weekend_crowd"]:
+        if crowd and spot.get("weekend_crowd"):
             if crowd.lower() not in spot["weekend_crowd"].lower():
                 continue
 
         results.append({
             "id":                 spot["id"],
             "name":               spot["name"],
-            "alternative_name":   spot["alternative_name"],
-            "zone":               spot["zone"],
-            "country":            spot["country"],
+            "alternative_name":   spot.get("alternative_name"),
+            "zone":               spot.get("zone"),
+            "country":            spot.get("country"),
             "latitude":           spot["latitude"],
             "longitude":          spot["longitude"],
             "distance_miles":     round(dist, 1),
-            "wave_quality":       spot["wave_quality"],
-            "experience":         spot["experience"],
-            "frequency":          spot["frequency"],
-            "wave_type":          spot["wave_type"],
-            "wave_direction":     spot["wave_direction"],
-            "bottom":             spot["bottom"],
-            "power":              spot["power"],
-            "normal_length":      spot["normal_length"],
-            "good_day_length":    spot["good_day_length"],
-            "good_swell_dir":     spot["good_swell_dir"],
-            "good_wind_dir":      spot["good_wind_dir"],
-            "swell_size":         spot["swell_size"],
-            "best_tide_position": spot["best_tide_position"],
-            "best_tide_movement": spot["best_tide_movement"],
-            "week_crowd":         spot["week_crowd"],
-            "weekend_crowd":      spot["weekend_crowd"],
-            "dangers":            spot["dangers"],
-            "access_distance":    spot["access_distance"],
-            "access_walk":        spot["access_walk"],
-            "access_description": spot["access_description"],
-            "description":        spot["description"],
-            "atmosphere":         spot["atmosphere"],
-            "url":                spot["url"],
+            "wave_quality":       spot.get("wave_quality"),
+            "experience":         spot.get("experience"),
+            "frequency":          spot.get("frequency"),
+            "wave_type":          spot.get("wave_type"),
+            "wave_direction":     spot.get("wave_direction"),
+            "bottom":             spot.get("bottom"),
+            "power":              spot.get("power"),
+            "normal_length":      spot.get("normal_length"),
+            "good_day_length":    spot.get("good_day_length"),
+            "good_swell_dir":     spot.get("good_swell_dir"),
+            "good_wind_dir":      spot.get("good_wind_dir"),
+            "swell_size":         spot.get("swell_size"),
+            "best_tide_position": spot.get("best_tide_position"),
+            "best_tide_movement": spot.get("best_tide_movement"),
+            "week_crowd":         spot.get("week_crowd"),
+            "weekend_crowd":      spot.get("weekend_crowd"),
+            "dangers":            spot.get("dangers"),
+            "access_distance":    spot.get("access_distance"),
+            "access_walk":        spot.get("access_walk"),
+            "access_description": spot.get("access_description"),
+            "description":        spot.get("description"),
+            "atmosphere":         spot.get("atmosphere"),
+            "url":                spot.get("url"),
         })
 
     results.sort(key=lambda x: x["distance_miles"])
@@ -126,18 +142,25 @@ def search():
 
 @app.route("/filters")
 def filters():
-    """Return distinct filter values from the DB for dynamic dropdowns."""
-    conn = get_db()
-    experience_vals = [r[0] for r in conn.execute(
-        "SELECT DISTINCT experience FROM surf_spots WHERE experience IS NOT NULL ORDER BY experience"
-    ).fetchall()]
-    wave_type_vals = [r[0] for r in conn.execute(
-        "SELECT DISTINCT wave_type FROM surf_spots WHERE wave_type IS NOT NULL ORDER BY wave_type"
-    ).fetchall()]
-    crowd_vals = [r[0] for r in conn.execute(
-        "SELECT DISTINCT weekend_crowd FROM surf_spots WHERE weekend_crowd IS NOT NULL ORDER BY weekend_crowd"
-    ).fetchall()]
-    conn.close()
+    all_spots = []
+    page = 0
+    page_size = 1000
+    while True:
+        response = supabase.table("surf_spots") \
+            .select("experience, wave_type, weekend_crowd") \
+            .range(page * page_size, (page + 1) * page_size - 1) \
+            .execute()
+        all_spots.extend(response.data)
+        if len(response.data) < page_size:
+            break
+        page += 1
+
+    spots = all_spots
+    
+    experience_vals = sorted(set(s["experience"] for s in spots if s.get("experience")))
+    wave_type_vals  = sorted(set(s["wave_type"]  for s in spots if s.get("wave_type")))
+    crowd_vals      = sorted(set(s["weekend_crowd"] for s in spots if s.get("weekend_crowd")))
+
     return jsonify({
         "experience": experience_vals,
         "wave_type":  wave_type_vals,
